@@ -88,3 +88,4 @@ router wl request = case request of
                        { route: Guess gameId, method: Get, body } -> routeGuess wl gameId body
                        { route: CreateGame { wordLength }, method: Post } -> routeCreateGame wl wordLength
                        _ -> notFound
+-- TODO validation and routes modules violate verticality?
