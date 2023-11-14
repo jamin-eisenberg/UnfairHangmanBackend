@@ -1,4 +1,13 @@
-module Data.Word where
+module Word
+  ( Word(..)
+  , isWon
+  , mkBlankWord
+  , mkWord
+  , revealLetterInWord
+  , wordContains
+  , wordMatches
+  )
+  where
 
 import Prelude
 
@@ -6,10 +15,10 @@ import Data.Argonaut (class EncodeJson, fromString)
 import Data.Array (all, any, catMaybes, elem, filter, fold, intersect, mapWithIndex, null, replicate, zip, zipWith)
 import Data.Either (Either(..), blush, hush, isRight)
 import Data.Generic.Rep (class Generic)
-import Data.Letter (GuessChar, Letter, blank, letterMatches, mkLetter, revealLetter, toChar)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.String.CodeUnits (toCharArray)
 import Data.Tuple (fst, snd)
+import Letter (Letter, blank, letterMatches, mkLetter, revealLetter, toChar)
 
 newtype Word = Word (Array Letter)
 
@@ -22,8 +31,6 @@ instance Show Word where
 instance EncodeJson Word where
   encodeJson = fromString <<< show
 
-type SecretWord = String
-
 mkWord :: Array Char -> Either (Array String) Word
 mkWord cs = let letters :: Array (Either String Letter)
                 letters = mkLetter <$> cs in
@@ -34,7 +41,10 @@ mkWord cs = let letters :: Array (Either String Letter)
                          in
                         (Left <<< catMaybes <<< mapWithIndex makeMsg) maybeMsgs
 
-mkBlankWord :: Int -> Word
+type WordLength =
+  Int
+
+mkBlankWord :: WordLength -> Word
 mkBlankWord n = wrap $ replicate n blank
 
 wordMatches :: String -> Word -> Boolean
@@ -50,7 +60,7 @@ wordMatches s (Word w) = allLettersFit && noBlanksAreAlreadyUsedLetters
 wordContains :: Word -> Char -> Boolean
 wordContains (Word ls) c = elem c $ toChar <$> filter (_ /= blank) ls
 
-revealLetterInWord :: GuessChar -> SecretWord -> Word -> Word
+revealLetterInWord :: Char -> String -> Word -> Word
 revealLetterInWord c ans word = let ansChars = toCharArray ans
                                     wordLetters = unwrap word
                     in

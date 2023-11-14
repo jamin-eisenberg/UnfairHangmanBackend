@@ -17,7 +17,6 @@ to generate this file without the comments in this block.
   , "argonaut-codecs"
   , "arrays"
   , "console"
-  , "debug"
   , "effect"
   , "either"
   , "enums"

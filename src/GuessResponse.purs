@@ -1,16 +1,20 @@
-module Data.GuessResponse where
+module GuessResponse
+  ( GuessError(..)
+  , GuessResponse(..)
+  , GuessResponseMessage(..)
+  )
+  where
 
 import Prelude
 
 import Data.Argonaut (class EncodeJson, encodeJson, fromString)
 import Data.Array.NonEmpty (fromNonEmpty, init, last)
-import Data.Letter (GuessChar)
 import Data.NonEmpty (NonEmpty, (:|))
 import Data.String (joinWith)
 import Data.String.CodeUnits (singleton)
-import Data.Word (Word)
+import Word (Word)
 
-data GuessError = GuessingLetterNotAlpha GuessChar | GuessingLetterHasBeenGuessedPreviously | IncorrectLettersInWordSoFar (Array GuessChar) | WordSoFarMalformed (Array String) | AlreadyWon | ImpossibleWordSoFar | StringsShouldBeChars (Array String)
+data GuessError = GuessingLetterNotAlpha Char | GuessingLetterHasBeenGuessedPreviously | IncorrectLettersInWordSoFar (Array Char) | WordSoFarMalformed (Array String) | AlreadyWon | ImpossibleWordSoFar | StringsShouldBeChars (Array String)
 
 instance Show GuessError where
   show e = case e of

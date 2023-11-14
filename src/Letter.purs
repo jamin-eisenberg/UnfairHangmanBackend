@@ -1,9 +1,6 @@
-module Data.Letter
-  ( AnswerChar
-  , GuessChar
-  , Letter
+module Letter
+  ( Letter
   , blank
-  , isAsciiLetter
   , letterMatches
   , mkLetter
   , revealLetter
@@ -14,9 +11,8 @@ module Data.Letter
 import Prelude
 
 import Data.Either (Either, note)
-import Data.Enum (fromEnum, toEnum)
-import Data.Maybe (Maybe(..))
 import Data.String.CodeUnits (singleton)
+import Utils (toLower)
 
 data Letter = Letter Char | Blank
 
@@ -35,23 +31,6 @@ mkLetter c = if c == '_'
 blank :: Letter
 blank = Blank
 
-type GuessChar = Char
-type AnswerChar = Char
-
-toLower :: Char -> Maybe Char
-toLower c
- | isAsciiLetter c && isLower c = pure c
- | isAsciiLetter c = (toEnum <<< (_ + 32) <<< fromEnum) c
- | otherwise = Nothing
-
-isLower :: Char -> Boolean
-isLower c = let charCode = fromEnum c in charCode >= 97 && charCode <= 122
-
-isAsciiLetter :: Char -> Boolean
-isAsciiLetter c = let charCode = fromEnum c in
-                    (charCode >= 65 && charCode <= 90) || 
-                    isLower c
-
 letterMatches :: Char -> Letter -> Boolean
 letterMatches c letter = case letter of
                     Letter lc -> lc == c
@@ -61,6 +40,9 @@ toChar :: Letter -> Char
 toChar l = case l of
             Letter c -> c
             Blank -> '_'
+
+type GuessChar = Char
+type AnswerChar = Char
 
 revealLetter :: GuessChar -> AnswerChar -> Letter -> Letter
 revealLetter g a known = case known of
