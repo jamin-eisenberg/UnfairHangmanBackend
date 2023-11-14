@@ -29,6 +29,7 @@ to generate this file without the comments in this block.
   , "nonempty"
   , "partial"
   , "prelude"
+  , "profunctor-lenses"
   , "random"
   , "refs"
   , "strings"

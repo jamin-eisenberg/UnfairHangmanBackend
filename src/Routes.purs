@@ -1,6 +1,7 @@
 module Routes
   ( GameId(..)
   , Route(..)
+  , WordLength(..)
   , route
   , router
   )
@@ -11,13 +12,16 @@ import Prelude hiding ((/))
 import Control.Monad.Trans.Class (lift)
 import Data.Argonaut (class DecodeJson, class EncodeJson, JsonDecodeError, decodeJson, encodeJson, parseJson, printJsonDecodeError, stringify)
 import Data.Either (Either, note)
+import Data.Lens.Iso.Newtype (_Newtype)
+import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
+import Data.Show.Generic (genericShow)
 import Data.UUID (UUID, parseUUID, toString)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import GuessRequest (GuessRequest, RawGuessRequest)
 import GuessResponse (GuessError, GuessResponse)
-import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, RouteDuplex', ResponseM, as, badRequest, fromValidatedE, jsonHeaders, mkRoute, noArgs, notFound, ok, ok', segment, toJson, usingCont, (/))
+import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, fromValidatedE, int, jsonHeaders, mkRoute, notFound, ok, ok', optional, segment, toJson, usingCont, (/), (?))
 import HTTPurple.Body (RequestBody)
 import HTTPurple.Json (fromJsonE)
 import Validation (validateGuess)
@@ -27,19 +31,28 @@ newtype GameId = GameId UUID
 derive instance Generic GameId _
 derive instance Newtype GameId _
 
-data Route = CreateGame | Guess GameId
+newtype WordLength = WordLength Int
+derive instance Generic WordLength _
+derive instance Newtype WordLength _
+instance Show WordLength where
+  show = genericShow
+
+data Route = CreateGame { wordLength :: Maybe WordLength } | Guess GameId
 derive instance Generic Route _
+
+wordLengthCapture :: RouteDuplex' String -> RouteDuplex' (Maybe WordLength)
+wordLengthCapture = optional <<< _Newtype <<< int
 
 gameIdFromString :: String -> Either String GameId
 gameIdFromString = note "The UUID specfied in the URL is invalid." <<< map wrap <<< parseUUID
 
-gameIdCapture :: RouteDuplex' String -> RouteDuplex' GameId
-gameIdCapture = as ((toString <<< unwrap) :: GameId -> String) gameIdFromString
+gameIdCapture :: RouteDuplex' GameId
+gameIdCapture = as (toString <<< unwrap) gameIdFromString $ segment
 
 route :: RouteDuplex' Route
 route = mkRoute
-  { "CreateGame": noArgs
-  , "Guess": gameIdCapture segment / "guess"
+  { "CreateGame": "game" ? { wordLength: wordLengthCapture }
+  , "Guess": gameIdCapture / "guess"
   } 
 
 jsonDecoder ∷ ∀ (a ∷ Type). DecodeJson a ⇒ JsonDecoder JsonDecodeError a
@@ -67,11 +80,11 @@ routeGuess wl _ body = usingCont do
     output :: GuessResponse <- lift $ pickWordWithWordlist wl input
     ok' jsonHeaders $ toJson jsonEncoder output
 
-routeCreateGame :: Wordlist -> ResponseM
-routeCreateGame _ = ok "Hi"
+routeCreateGame :: Wordlist -> Maybe WordLength -> ResponseM
+routeCreateGame _ wordLength = ok $ show wordLength
 
 router :: Wordlist -> Request Route -> ResponseM
 router wl request = case request of 
                        { route: Guess gameId, method: Get, body } -> routeGuess wl gameId body
-                       { route: CreateGame, method: Post } -> routeCreateGame wl
+                       { route: CreateGame { wordLength }, method: Post } -> routeCreateGame wl wordLength
                        _ -> notFound
