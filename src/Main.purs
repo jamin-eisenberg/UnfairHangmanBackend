@@ -11,7 +11,7 @@ import Data.Either (Either(..), note)
 import Data.Game (Game)
 import Data.Guess (GuessRequest, RawGuessRequest, Wordlist, pickRandomUnfairWord, validateGuess)
 import Data.GuessResponse (GuessError, GuessResponse)
-import Data.Newtype (class Newtype, over, unwrap, wrap)
+import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.String.Utils (lines)
 import Data.UUID (UUID, parseUUID, toString)
 import Effect (Effect)
@@ -19,11 +19,10 @@ import Effect.Aff (Aff, Error, runAff_)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class.Console (logShow)
 import Effect.Ref (Ref, new)
-import HTTPurple (class GRouteDuplexCtr, class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, fromValidatedE, jsonHeaders, mkRoute, noArgs, notFound, ok', segment, serve, string, toJson, usingCont, (/))
+import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, fromValidatedE, jsonHeaders, mkRoute, noArgs, notFound, ok, ok', segment, serve, toJson, usingCont, (/))
 import HTTPurple.Json (fromJsonE)
 import Node.Encoding (Encoding(..))
 import Node.FS.Aff (readTextFile)
-import Routing.Duplex.Generic (gRouteDuplexCtr)
 
 newtype GameId = GameId UUID
 derive instance Generic GameId _
@@ -35,13 +34,13 @@ derive instance Generic Route _
 gameIdFromString :: String -> Either String GameId
 gameIdFromString = note "The UUID specfied in the URL is invalid." <<< map wrap <<< parseUUID
 
-gameId :: RouteDuplex' String -> RouteDuplex' GameId
-gameId = as ((toString <<< unwrap) :: GameId -> String) gameIdFromString
+captureGameId :: RouteDuplex' GameId
+captureGameId = (as ((toString <<< unwrap) :: GameId -> String) gameIdFromString) segment
 
 route :: RouteDuplex' Route
 route = mkRoute
   { "CreateGame": noArgs
-  , "Guess": gameId / "guess"
+  , "Guess": captureGameId / "guess"
   } 
 
 jsonDecoder ∷ ∀ (a ∷ Type). DecodeJson a ⇒ JsonDecoder JsonDecodeError a
@@ -52,7 +51,7 @@ jsonEncoder = JsonEncoder $ encodeJson >>> stringify
 games :: Effect (Ref (Array Game))
 games = new []
 
--- TODO separate give up to a separate endpoint
+-- TODO move give up to a separate endpoint
 
 loadWordlist :: Aff Wordlist
 loadWordlist = do 
@@ -76,6 +75,7 @@ router wl { route: Guess gameId, method: Get, body } = usingCont do
     input :: GuessRequest <- fromValidatedE validateGuess guessErrorResponse jsonRequest
     output :: GuessResponse <- lift $ pickWordWithWordlist wl input
     ok' jsonHeaders $ toJson jsonEncoder output
+router _ { route: CreateGame, method: Post } = ok "hi"
 router _ _ = notFound
 
 serveGuessWithWordlist :: Either Error Wordlist -> Effect Unit
