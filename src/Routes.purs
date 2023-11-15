@@ -20,16 +20,19 @@ import Data.UUID (parseUUID, toString)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
+import Effect.Console (log)
 import Effect.Random (randomInt)
 import Effect.Ref (Ref, modify_, read)
 import Game (Game(..), GameId, mkGame)
+import GiveUpRequest (GiveUpRequest(..), RawGiveUpRequest)
+import GiveUpResponse (GiveUpResponse(..))
 import GuessRequest (GuessRequest, RawGuessRequest)
 import GuessResponse (GuessError, GuessResponse)
-import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, created', fromValidatedE, header, int, jsonHeaders, mkRoute, notFound, ok', optional, segment, toJson, usingCont, (/), (?))
+import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, created', fromValidatedE, fullPath, header, int, jsonHeaders, mkRoute, notFound, ok', optional, segment, toJson, usingCont, (/), (?))
 import HTTPurple.Body (RequestBody)
 import HTTPurple.Json (fromJsonE)
-import Validation (validateGuess)
-import Wordlist (pickRandomUnfairWord)
+import Validation (validateGiveUp, validateGuess)
+import Wordlist (getEligibleWords, pickRandomUnfairWord)
 
 newtype WordLength = WordLength Int
 derive instance Generic WordLength _
@@ -37,8 +40,21 @@ derive instance Newtype WordLength _
 instance Show WordLength where
   show = genericShow
 
-data Route = CreateGame { wordLength :: Maybe WordLength } | Guess GameId
+data Route = CreateGame { wordLength :: Maybe WordLength } | Guess GameId | GiveUp GameId
 derive instance Generic Route _
+
+loggingMiddleware ::
+  forall route.
+  (Request route -> ResponseM) ->
+  Request route ->
+  ResponseM
+loggingMiddleware outerRouter request = do
+  liftEffect $ log $ "Request starting for " <> show request.method <> "\t" <> path
+  response <- outerRouter request
+  liftEffect $ log $ "Request ending for " <> path
+  pure response
+  where
+  path = fullPath request
 
 wordLengthCapture :: RouteDuplex' String -> RouteDuplex' (Maybe WordLength)
 wordLengthCapture = optional <<< _Newtype <<< int
@@ -52,6 +68,7 @@ gameIdCapture = as (toString <<< unwrap) gameIdFromString $ segment
 route :: RouteDuplex' Route
 route = mkRoute
   { "CreateGame": "game" ? { wordLength: wordLengthCapture }
+  , "GiveUp": gameIdCapture / "giveUp"
   , "Guess": gameIdCapture / "guess"
   } 
 
@@ -67,6 +84,13 @@ pickWordWithWordlist wl guess = do
   guessResponse <- pickRandomUnfairWord guess wl
   pure $ guessResponse
 
+revealWords :: Wordlist -> Maybe String -> GiveUpRequest -> GiveUpResponse
+revealWords wl secretWord (GiveUpRequest { previouslyIncorrectLetters, wordSoFar }) =
+  let eligibleWords = getEligibleWords wordSoFar previouslyIncorrectLetters wl
+    in
+      GiveUpResponse { eligibleWords, secretWord }
+  
+
 guessErrorResponse :: forall m. MonadAff m => GuessError -> m Response
 guessErrorResponse = badRequest <<< show
 
@@ -80,6 +104,14 @@ routeGuess wl (Just game) body = usingCont do
     output :: GuessResponse <- lift $ pickWordWithWordlist wl input
     ok' jsonHeaders $ toJson jsonEncoder output
 routeGuess _ Nothing _ = notFound
+
+routeGiveUp :: Wordlist -> Maybe Game -> RequestBody -> ResponseM
+routeGiveUp wl (Just game) body = usingCont do
+    jsonRequest :: RawGiveUpRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
+    input :: GiveUpRequest <- fromValidatedE (validateGiveUp game) guessErrorResponse jsonRequest
+    let output = revealWords wl (unwrap game).secretWord input
+    ok' jsonHeaders $ toJson jsonEncoder output
+routeGiveUp _ Nothing _ = notFound
 
 routeCreateGame :: Ref (List Game) -> Maybe WordLength -> ResponseM
 routeCreateGame games givenWordLength = do
@@ -96,10 +128,14 @@ routeCreateGame games givenWordLength = do
       created' (header "Location" gameLocation <> header "Word-Length" wordLengthString)
 
 router :: Wordlist -> Ref (List Game) -> Request Route -> ResponseM
-router wl games request = case request of 
-                       { route: Guess gameId, method: Get, body } -> do
+router wl games req = loggingMiddleware result req
+  where result request = case request of 
+                       { route: Guess gameId, method: Patch, body } -> do
                                                                         game <- liftEffect $ gameWithId gameId
                                                                         routeGuess wl game body
+                       { route: GiveUp gameId, method: Delete, body } -> do
+                                                                          game <- liftEffect $ gameWithId gameId
+                                                                          routeGiveUp wl game body
                        { route: CreateGame { wordLength }, method: Post } -> routeCreateGame games wordLength
                        _ -> notFound
           where gameWithId id = do
@@ -107,3 +143,6 @@ router wl games request = case request of
                   pure $ find (\g -> (unwrap g).id == id) gs
 -- TODO validation and routes modules violate verticality?
 -- TODO add DB for games
+-- TODO get game state
+-- TODO get help
+-- separate dict filtration into lazy phases

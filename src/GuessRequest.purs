@@ -9,10 +9,9 @@ module GuessRequest
 
 import Prelude
 
-import Data.Argonaut (class DecodeJson, decodeJson, (.:))
-import Data.Argonaut.Decode.Combinators ((.:?))
+import Data.Argonaut (class DecodeJson, decodeJson)
+import Data.Argonaut.Decode.Combinators ((.:))
 import Data.Either (Either(..))
-import Data.Maybe (Maybe, isJust)
 import Data.Newtype (wrap)
 import Data.String.CaseInsensitive (CaseInsensitiveString)
 import GuessResponse (GuessError(..))
@@ -33,21 +32,15 @@ isUnfair g = case g of
               Mean -> true
               Normal -> false
 
-data RawGuessRequest = RawGuessRequest { mode :: String, guessingLetter :: String, previouslyIncorrectLetters :: Array String, wordSoFar :: String } | RawGiveUpRequest { previouslyIncorrectLetters :: Array String, wordSoFar :: String }
+newtype RawGuessRequest = RawGuessRequest { mode :: String, guessingLetter :: String, previouslyIncorrectLetters :: Array String, wordSoFar :: String }
 
-data GuessRequest
-  = GuessRequest { mode :: GameMode, guessingLetter :: Char, previouslyIncorrectLetters :: Array Char, wordSoFar :: Word } | GiveUpRequest { previouslyIncorrectLetters :: Array Char, wordSoFar :: Word }
+newtype GuessRequest = GuessRequest { mode :: GameMode, guessingLetter :: Char, previouslyIncorrectLetters :: Array Char, wordSoFar :: Word }
 
 instance DecodeJson RawGuessRequest where
   decodeJson json = do
     decoded <- decodeJson json
     previouslyIncorrectLetters <- decoded .: "previouslyIncorrectLetters"
     wordSoFar <- decoded .: "wordSoFar"
-    guessingLetterMaybe :: Maybe String <- decoded .:? "guessingLetter"
-    if isJust guessingLetterMaybe
-    then do
-          guessingLetter <- decoded .: "guessingLetter"
-          mode <- decoded .: "mode"
-          pure $ RawGuessRequest { mode, guessingLetter, previouslyIncorrectLetters, wordSoFar } 
-    else do
-          pure $ RawGiveUpRequest { previouslyIncorrectLetters, wordSoFar }
+    guessingLetter <- decoded .: "guessingLetter"
+    mode <- decoded .: "mode"
+    pure $ RawGuessRequest { mode, guessingLetter, previouslyIncorrectLetters, wordSoFar } 

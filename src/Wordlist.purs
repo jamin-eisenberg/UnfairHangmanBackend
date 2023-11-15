@@ -1,5 +1,6 @@
 module Wordlist
-  ( pickRandomUnfairWord
+  ( getEligibleWords
+  , pickRandomUnfairWord
   ) where
 
 import Prelude
@@ -91,5 +92,3 @@ evaluateGuess (GuessRequest guess) wordlist toPick =
           }
       )
       response
-
-evaluateGuess (GiveUpRequest giveUp) wordlist _ = GiveUpResponse { eligibleWords: getEligibleWords giveUp.wordSoFar giveUp.previouslyIncorrectLetters wordlist }

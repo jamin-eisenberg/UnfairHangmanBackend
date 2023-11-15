@@ -48,9 +48,7 @@ positionsToMessage ps = case ps of
                             where nePs = fromNonEmpty ps
 
 
-data GuessResponse = GuessResponse { message :: GuessResponseMessage, incorrectLetters :: Array Char, wordSoFar :: Word } | GiveUpResponse { eligibleWords :: Array String }
+data GuessResponse = GuessResponse { message :: GuessResponseMessage, incorrectLetters :: Array Char, wordSoFar :: Word }
 
 instance EncodeJson GuessResponse where
-  encodeJson r = case r of 
-                  GuessResponse guess -> encodeJson guess
-                  GiveUpResponse giveUp -> encodeJson giveUp
+  encodeJson (GuessResponse guess) = encodeJson guess

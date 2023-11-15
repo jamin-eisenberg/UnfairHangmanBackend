@@ -1,5 +1,6 @@
 module Validation
-  ( validateGuess
+  ( validateGiveUp
+  , validateGuess
   ) where
 
 import Prelude
@@ -10,6 +11,7 @@ import Data.Newtype (unwrap, wrap)
 import Data.String as String
 import Data.String.CodeUnits (toChar, toCharArray)
 import Game (Game(..))
+import GiveUpRequest (GiveUpRequest(..), RawGiveUpRequest(..))
 import GuessRequest (GuessRequest(..), RawGuessRequest(..), fromString)
 import GuessResponse (GuessError(..))
 import Utils (isAsciiLetter, leftIf, mapLeft)
@@ -44,6 +46,15 @@ validateIncorrectLettersAndWordSoFar gameWordLength { rawPreviouslyIncorrectLett
   leftIf (gameWordLength /= length (unwrap wordSoFar)) $ WordSoFarWrongLength gameWordLength (length $ unwrap wordSoFar)
   pure { wordSoFar, previouslyIncorrectLetters }
 
+validateGiveUp :: Game -> RawGiveUpRequest -> Either GuessError GiveUpRequest
+validateGiveUp (Game { wordLength }) ( RawGiveUpRequest
+    { previouslyIncorrectLetters: rawPreviouslyIncorrectLetters
+  , wordSoFar: rawWordSoFar
+  }
+) = do
+  { wordSoFar, previouslyIncorrectLetters } <- validateIncorrectLettersAndWordSoFar wordLength { rawPreviouslyIncorrectLetters, rawWordSoFar }
+  pure $ GiveUpRequest { previouslyIncorrectLetters, wordSoFar }
+
 validateGuess :: Game -> RawGuessRequest -> Either GuessError GuessRequest
 validateGuess (Game { wordLength }) ( RawGuessRequest
     { guessingLetter: rawGuessingLetter
@@ -59,9 +70,3 @@ validateGuess (Game { wordLength }) ( RawGuessRequest
   leftIf (guessingLetter `elem` previouslyIncorrectLetters || guessingLetter `elem` toCharArray rawWordSoFar)
     GuessingLetterHasBeenGuessedPreviously
   pure $ GuessRequest { guessingLetter, previouslyIncorrectLetters, wordSoFar, mode }
-
-validateGuess (Game { wordLength }) ( RawGiveUpRequest
-    { previouslyIncorrectLetters: rawPreviouslyIncorrectLetters
-  , wordSoFar: rawWordSoFar
-  }
-) = validateIncorrectLettersAndWordSoFar wordLength { rawPreviouslyIncorrectLetters, rawWordSoFar } >>= pure <<< GiveUpRequest
