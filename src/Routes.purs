@@ -73,30 +73,33 @@ guessErrorResponse = badRequest <<< show
 jsonDecodeErrorResponse :: forall m. MonadAff m => JsonDecodeError -> m Response
 jsonDecodeErrorResponse = badRequest <<< printJsonDecodeError
 
-routeGuess :: Wordlist -> Game -> RequestBody -> ResponseM
-routeGuess wl game body = usingCont do
+routeGuess :: Wordlist -> Maybe Game -> RequestBody -> ResponseM
+routeGuess wl (Just game) body = usingCont do
     jsonRequest :: RawGuessRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
     input :: GuessRequest <- fromValidatedE (validateGuess game) guessErrorResponse jsonRequest
     output :: GuessResponse <- lift $ pickWordWithWordlist wl input
     ok' jsonHeaders $ toJson jsonEncoder output
+routeGuess _ Nothing _ = notFound
 
 routeCreateGame :: Ref (List Game) -> Maybe WordLength -> ResponseM
 routeCreateGame games givenWordLength = do
     randomWordLength <- liftEffect $ wrap <$> randomInt 3 8
     let wordLength = fromMaybe randomWordLength givenWordLength
-    g@(Game { id }) <- liftEffect $ mkGame (unwrap wordLength)
-    let gameLocation = "/" <> show id
-    liftEffect $ modify_ (g:_) games
     let wordLengthString = show $ unwrap wordLength
-    created' (header "Location" gameLocation <> header "Word-Length" wordLengthString)
+
+    if unwrap wordLength < 1
+    then badRequest $ "wordLength should be >= 1. Got " <> wordLengthString
+    else do
+      g@(Game { id }) <- liftEffect $ mkGame (unwrap wordLength)
+      let gameLocation = "/" <> show id
+      liftEffect $ modify_ (g:_) games
+      created' (header "Location" gameLocation <> header "Word-Length" wordLengthString)
 
 router :: Wordlist -> Ref (List Game) -> Request Route -> ResponseM
 router wl games request = case request of 
                        { route: Guess gameId, method: Get, body } -> do
                                                                         game <- liftEffect $ gameWithId gameId
-                                                                        case game of
-                                                                          Just g -> routeGuess wl g body
-                                                                          Nothing -> notFound
+                                                                        routeGuess wl game body
                        { route: CreateGame { wordLength }, method: Post } -> routeCreateGame games wordLength
                        _ -> notFound
           where gameWithId id = do
