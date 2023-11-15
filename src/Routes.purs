@@ -12,8 +12,8 @@ import Control.Monad.Trans.Class (lift)
 import Data.Argonaut (class DecodeJson, class EncodeJson, JsonDecodeError, decodeJson, encodeJson, parseJson, printJsonDecodeError, stringify)
 import Data.Either (Either, note)
 import Data.Lens.Iso.Newtype (_Newtype)
-import Data.List (List, elem, (:))
-import Data.Maybe (Maybe, fromMaybe)
+import Data.List (List, find, (:))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Show.Generic (genericShow)
 import Data.UUID (parseUUID, toString)
@@ -73,31 +73,34 @@ guessErrorResponse = badRequest <<< show
 jsonDecodeErrorResponse :: forall m. MonadAff m => JsonDecodeError -> m Response
 jsonDecodeErrorResponse = badRequest <<< printJsonDecodeError
 
-routeGuess :: Wordlist -> GameId -> Ref (List Game) -> RequestBody -> ResponseM
-routeGuess wl _ games body = usingCont do
+routeGuess :: Wordlist -> Game -> RequestBody -> ResponseM
+routeGuess wl game body = usingCont do
     jsonRequest :: RawGuessRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
-    input :: GuessRequest <- fromValidatedE validateGuess guessErrorResponse jsonRequest
+    input :: GuessRequest <- fromValidatedE (validateGuess game) guessErrorResponse jsonRequest
     output :: GuessResponse <- lift $ pickWordWithWordlist wl input
     ok' jsonHeaders $ toJson jsonEncoder output
 
-routeCreateGame :: Wordlist -> Ref (List Game) -> Maybe WordLength -> ResponseM
-routeCreateGame wl games givenWordLength = do
+routeCreateGame :: Ref (List Game) -> Maybe WordLength -> ResponseM
+routeCreateGame games givenWordLength = do
     randomWordLength <- liftEffect $ wrap <$> randomInt 3 8
     let wordLength = fromMaybe randomWordLength givenWordLength
-    g@(Game { id }) <- liftEffect $ mkGame (unwrap wordLength) wl
+    g@(Game { id }) <- liftEffect $ mkGame (unwrap wordLength)
     let gameLocation = "/" <> show id
     liftEffect $ modify_ (g:_) games
-    created' (header "Location" gameLocation)
+    let wordLengthString = show $ unwrap wordLength
+    created' (header "Location" gameLocation <> header "Word-Length" wordLengthString)
 
 router :: Wordlist -> Ref (List Game) -> Request Route -> ResponseM
 router wl games request = case request of 
                        { route: Guess gameId, method: Get, body } -> do
-                                                                        isCreatedGame <- liftEffect $ gamesContainsId gameId
-                                                                        if isCreatedGame
-                                                                        then routeGuess wl gameId games body
-                                                                        else notFound
-                       { route: CreateGame { wordLength }, method: Post } -> routeCreateGame wl games wordLength
+                                                                        game <- liftEffect $ gameWithId gameId
+                                                                        case game of
+                                                                          Just g -> routeGuess wl g body
+                                                                          Nothing -> notFound
+                       { route: CreateGame { wordLength }, method: Post } -> routeCreateGame games wordLength
                        _ -> notFound
-          where gamesContainsId id = (\gs -> id `elem` ((_.id <<< unwrap) <$> gs)) <$> read games
+          where gameWithId id = do
+                  gs <- read games
+                  pure $ find (\g -> (unwrap g).id == id) gs
 -- TODO validation and routes modules violate verticality?
 -- TODO add DB for games

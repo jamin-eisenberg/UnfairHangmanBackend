@@ -3,11 +3,13 @@ module Validation
   ) where
 
 import Prelude
-import Data.Array (any, catMaybes, elem, filter, intersect, null)
+import Data.Array (any, catMaybes, elem, filter, intersect, length, null)
 import Data.Either (Either(..), note)
 import Data.Maybe (isNothing)
+import Data.Newtype (unwrap)
 import Data.String as String
 import Data.String.CodeUnits (toChar, toCharArray)
+import Game (Game(..))
 import GuessRequest (GuessRequest(..), RawGuessRequest(..))
 import GuessResponse (GuessError(..))
 import Utils (isAsciiLetter, leftIf, mapLeft)
@@ -15,6 +17,7 @@ import Word (Word, isWon, mkWord)
 
 validateIncorrectLettersAndWordSoFar ::
   forall r.
+  Int ->
   { rawPreviouslyIncorrectLetters :: Array String
   , rawWordSoFar :: String
   | r
@@ -23,7 +26,7 @@ validateIncorrectLettersAndWordSoFar ::
     { previouslyIncorrectLetters :: Array Char
     , wordSoFar :: Word
     }
-validateIncorrectLettersAndWordSoFar { rawPreviouslyIncorrectLetters
+validateIncorrectLettersAndWordSoFar gameWordLength { rawPreviouslyIncorrectLetters
 , rawWordSoFar
 } = do
   let
@@ -38,10 +41,11 @@ validateIncorrectLettersAndWordSoFar { rawPreviouslyIncorrectLetters
     incorrectLettersInWordSoFar = intersect previouslyIncorrectLetters $ toCharArray rawWordSoFar
   leftIf (not $ null incorrectLettersInWordSoFar) (IncorrectLettersInWordSoFar incorrectLettersInWordSoFar)
   leftIf (isWon wordSoFar) AlreadyWon
+  leftIf (gameWordLength /= length (unwrap wordSoFar)) $ WordSoFarWrongLength gameWordLength (length $ unwrap wordSoFar)
   pure { wordSoFar, previouslyIncorrectLetters }
 
-validateGuess :: RawGuessRequest -> Either GuessError GuessRequest
-validateGuess ( RawGuessRequest
+validateGuess :: Game -> RawGuessRequest -> Either GuessError GuessRequest
+validateGuess (Game { wordLength }) ( RawGuessRequest
     { guessingLetter: rawGuessingLetter
   , previouslyIncorrectLetters: rawPreviouslyIncorrectLetters
   , wordSoFar: rawWordSoFar
@@ -49,14 +53,14 @@ validateGuess ( RawGuessRequest
   }
 ) = do
   guessingLetter <- note (StringsShouldBeChars [ rawGuessingLetter ]) $ toChar rawGuessingLetter
-  { wordSoFar, previouslyIncorrectLetters } <- validateIncorrectLettersAndWordSoFar { rawPreviouslyIncorrectLetters, rawWordSoFar }
+  { wordSoFar, previouslyIncorrectLetters } <- validateIncorrectLettersAndWordSoFar wordLength { rawPreviouslyIncorrectLetters, rawWordSoFar }
   leftIf (not isAsciiLetter guessingLetter) (GuessingLetterNotAlpha guessingLetter)
   leftIf (guessingLetter `elem` previouslyIncorrectLetters || guessingLetter `elem` toCharArray rawWordSoFar)
     GuessingLetterHasBeenGuessedPreviously
   pure $ GuessRequest { guessingLetter, previouslyIncorrectLetters, wordSoFar, nice }
 
-validateGuess ( RawGiveUpRequest
+validateGuess (Game { wordLength }) ( RawGiveUpRequest
     { previouslyIncorrectLetters: rawPreviouslyIncorrectLetters
   , wordSoFar: rawWordSoFar
   }
-) = validateIncorrectLettersAndWordSoFar { rawPreviouslyIncorrectLetters, rawWordSoFar } >>= pure <<< GiveUpRequest
+) = validateIncorrectLettersAndWordSoFar wordLength { rawPreviouslyIncorrectLetters, rawWordSoFar } >>= pure <<< GiveUpRequest
