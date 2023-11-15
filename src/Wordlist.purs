@@ -14,7 +14,7 @@ import Data.String.CodeUnits (singleton, toCharArray)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Random (randomInt)
-import GuessRequest (GuessRequest(..))
+import GuessRequest (GuessRequest(..), isUnfair)
 import GuessResponse (GuessError(..), GuessResponse(..), GuessResponseMessage(..))
 import Partial.Unsafe (unsafePartial)
 import Utils (countOccurrences, indexWrapping, occurrenceIndices)
@@ -57,7 +57,8 @@ evaluateGuess (GuessRequest guess) wordlist toPick =
     fewestRevealedLettersGrouped = groupBy (eq `on` guessingLetterOccurrences) fewestRevealedLetters
 
     response = do
-      goodUnfairWords <- (if guess.nice then last else head) fewestRevealedLettersGrouped
+      -- TODO isUnfair is not correct
+      goodUnfairWords <- (if isUnfair guess.mode then last else head) fewestRevealedLettersGrouped
       let
         wordToPlay = indexWrapping goodUnfairWords toPick
 

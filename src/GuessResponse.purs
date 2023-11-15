@@ -14,7 +14,7 @@ import Data.String (joinWith)
 import Data.String.CodeUnits (singleton)
 import Word (Word)
 
-data GuessError = GuessingLetterNotAlpha Char | GuessingLetterHasBeenGuessedPreviously | IncorrectLettersInWordSoFar (Array Char) | WordSoFarMalformed (Array String) | WordSoFarWrongLength Int Int | AlreadyWon | ImpossibleWordSoFar | StringsShouldBeChars (Array String)
+data GuessError = GuessingLetterNotAlpha Char | GuessingLetterHasBeenGuessedPreviously | IncorrectLettersInWordSoFar (Array Char) | WordSoFarMalformed (Array String) | WordSoFarWrongLength Int Int | AlreadyWon | ImpossibleWordSoFar | StringsShouldBeChars (Array String) | InvalidMode
 
 instance Show GuessError where
   show e = case e of
@@ -26,6 +26,7 @@ instance Show GuessError where
             ImpossibleWordSoFar -> "There are no words in the (pretty lenient) dictionary that fit the wordSoFar."
             StringsShouldBeChars ss -> "Found a string of length != 1 when this string should represent a char: " <> show ss <> "."
             WordSoFarWrongLength expected actual -> "Expected wordSoFar to be " <> show expected <> " letters long, but it was " <> show actual <> " letters long."
+            InvalidMode -> "Expected one of nice|mean|normal"
 
 data GuessResponseMessage = Win String | Incorrect Char | Correct Char (NonEmpty Array Int) | InvalidGuess (Array GuessError)
 

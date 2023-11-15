@@ -6,11 +6,11 @@ import Prelude
 import Data.Array (any, catMaybes, elem, filter, intersect, length, null)
 import Data.Either (Either(..), note)
 import Data.Maybe (isNothing)
-import Data.Newtype (unwrap)
+import Data.Newtype (unwrap, wrap)
 import Data.String as String
 import Data.String.CodeUnits (toChar, toCharArray)
 import Game (Game(..))
-import GuessRequest (GuessRequest(..), RawGuessRequest(..))
+import GuessRequest (GuessRequest(..), RawGuessRequest(..), fromString)
 import GuessResponse (GuessError(..))
 import Utils (isAsciiLetter, leftIf, mapLeft)
 import Word (Word, isWon, mkWord)
@@ -49,15 +49,16 @@ validateGuess (Game { wordLength }) ( RawGuessRequest
     { guessingLetter: rawGuessingLetter
   , previouslyIncorrectLetters: rawPreviouslyIncorrectLetters
   , wordSoFar: rawWordSoFar
-  , nice
+  , mode: rawMode
   }
 ) = do
   guessingLetter <- note (StringsShouldBeChars [ rawGuessingLetter ]) $ toChar rawGuessingLetter
+  mode <- fromString (wrap rawMode)
   { wordSoFar, previouslyIncorrectLetters } <- validateIncorrectLettersAndWordSoFar wordLength { rawPreviouslyIncorrectLetters, rawWordSoFar }
   leftIf (not isAsciiLetter guessingLetter) (GuessingLetterNotAlpha guessingLetter)
   leftIf (guessingLetter `elem` previouslyIncorrectLetters || guessingLetter `elem` toCharArray rawWordSoFar)
     GuessingLetterHasBeenGuessedPreviously
-  pure $ GuessRequest { guessingLetter, previouslyIncorrectLetters, wordSoFar, nice }
+  pure $ GuessRequest { guessingLetter, previouslyIncorrectLetters, wordSoFar, mode }
 
 validateGuess (Game { wordLength }) ( RawGiveUpRequest
     { previouslyIncorrectLetters: rawPreviouslyIncorrectLetters
