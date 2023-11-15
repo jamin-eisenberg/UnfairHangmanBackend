@@ -4,6 +4,7 @@ module Main
 
 import Prelude hiding ((/))
 import Data.Either (Either(..))
+import Data.List (List(..))
 import Data.String.Utils (lines)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, runAff_)
@@ -15,9 +16,6 @@ import Node.Encoding (Encoding(..))
 import Node.FS.Aff (readTextFile)
 import Routes (route, router)
 
-games :: Effect (Ref (Array Game))
-games = new []
-
 type Wordlist
   = Array String
 
@@ -28,10 +26,12 @@ loadWordlist = do
   text <- readTextFile UTF8 "res/english_wordlist.txt"
   pure $ lines text
 
-serveGuessWithWordlist :: Either Error Wordlist -> Effect Unit
-serveGuessWithWordlist r = case r of
+serveWithWordlist :: Either Error Wordlist -> Ref (List Game) -> Effect Unit
+serveWithWordlist r games = case r of
   Left e -> logShow e
-  Right wl -> void $ serve { port: 8080 } { route, router: router wl }
+  Right wl -> void $ serve { port: 8080 } { route, router: router wl games }
 
 main :: Effect Unit
-main = runAff_ serveGuessWithWordlist loadWordlist
+main = do
+  games <- new Nil
+  runAff_ (flip serveWithWordlist games) loadWordlist

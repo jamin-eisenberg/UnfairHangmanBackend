@@ -22,6 +22,7 @@ to generate this file without the comments in this block.
   , "enums"
   , "foldable-traversable"
   , "httpurple"
+  , "lists"
   , "maybe"
   , "newtype"
   , "node-buffer"

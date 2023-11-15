@@ -1,6 +1,5 @@
 module Routes
-  ( GameId(..)
-  , Route(..)
+  ( Route(..)
   , WordLength(..)
   , route
   , router
@@ -13,23 +12,24 @@ import Control.Monad.Trans.Class (lift)
 import Data.Argonaut (class DecodeJson, class EncodeJson, JsonDecodeError, decodeJson, encodeJson, parseJson, printJsonDecodeError, stringify)
 import Data.Either (Either, note)
 import Data.Lens.Iso.Newtype (_Newtype)
-import Data.Maybe (Maybe)
+import Data.List (List, elem, (:))
+import Data.Maybe (Maybe, fromMaybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Show.Generic (genericShow)
-import Data.UUID (UUID, parseUUID, toString)
+import Data.UUID (parseUUID, toString)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
+import Effect.Class (liftEffect)
+import Effect.Random (randomInt)
+import Effect.Ref (Ref, modify_, read)
+import Game (Game(..), GameId, mkGame)
 import GuessRequest (GuessRequest, RawGuessRequest)
 import GuessResponse (GuessError, GuessResponse)
-import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, fromValidatedE, int, jsonHeaders, mkRoute, notFound, ok, ok', optional, segment, toJson, usingCont, (/), (?))
+import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, created', fromValidatedE, header, int, jsonHeaders, mkRoute, notFound, ok', optional, segment, toJson, usingCont, (/), (?))
 import HTTPurple.Body (RequestBody)
 import HTTPurple.Json (fromJsonE)
 import Validation (validateGuess)
 import Wordlist (pickRandomUnfairWord)
-
-newtype GameId = GameId UUID
-derive instance Generic GameId _
-derive instance Newtype GameId _
 
 newtype WordLength = WordLength Int
 derive instance Generic WordLength _
@@ -55,9 +55,9 @@ route = mkRoute
   , "Guess": gameIdCapture / "guess"
   } 
 
-jsonDecoder ∷ ∀ (a ∷ Type). DecodeJson a ⇒ JsonDecoder JsonDecodeError a
+jsonDecoder :: forall a. DecodeJson a ⇒ JsonDecoder JsonDecodeError a
 jsonDecoder = JsonDecoder $ parseJson >=> decodeJson
-jsonEncoder ∷ ∀ (a ∷ Type). EncodeJson a ⇒ JsonEncoder a
+jsonEncoder :: forall a. EncodeJson a ⇒ JsonEncoder a
 jsonEncoder = JsonEncoder $ encodeJson >>> stringify
 
 type Wordlist = Array String
@@ -73,19 +73,31 @@ guessErrorResponse = badRequest <<< show
 jsonDecodeErrorResponse :: forall m. MonadAff m => JsonDecodeError -> m Response
 jsonDecodeErrorResponse = badRequest <<< printJsonDecodeError
 
-routeGuess :: Wordlist -> GameId -> RequestBody -> ResponseM
-routeGuess wl _ body = usingCont do
+routeGuess :: Wordlist -> GameId -> Ref (List Game) -> RequestBody -> ResponseM
+routeGuess wl _ games body = usingCont do
     jsonRequest :: RawGuessRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
     input :: GuessRequest <- fromValidatedE validateGuess guessErrorResponse jsonRequest
     output :: GuessResponse <- lift $ pickWordWithWordlist wl input
     ok' jsonHeaders $ toJson jsonEncoder output
 
-routeCreateGame :: Wordlist -> Maybe WordLength -> ResponseM
-routeCreateGame _ wordLength = ok $ show wordLength
+routeCreateGame :: Wordlist -> Ref (List Game) -> Maybe WordLength -> ResponseM
+routeCreateGame wl games givenWordLength = do
+    randomWordLength <- liftEffect $ wrap <$> randomInt 3 8
+    let wordLength = fromMaybe randomWordLength givenWordLength
+    g@(Game { id }) <- liftEffect $ mkGame (unwrap wordLength) wl
+    let gameLocation = "/" <> show id
+    liftEffect $ modify_ (g:_) games
+    created' (header "Location" gameLocation)
 
-router :: Wordlist -> Request Route -> ResponseM
-router wl request = case request of 
-                       { route: Guess gameId, method: Get, body } -> routeGuess wl gameId body
-                       { route: CreateGame { wordLength }, method: Post } -> routeCreateGame wl wordLength
+router :: Wordlist -> Ref (List Game) -> Request Route -> ResponseM
+router wl games request = case request of 
+                       { route: Guess gameId, method: Get, body } -> do
+                                                                        isCreatedGame <- liftEffect $ gamesContainsId gameId
+                                                                        if isCreatedGame
+                                                                        then routeGuess wl gameId games body
+                                                                        else notFound
+                       { route: CreateGame { wordLength }, method: Post } -> routeCreateGame wl games wordLength
                        _ -> notFound
+          where gamesContainsId id = (\gs -> id `elem` ((_.id <<< unwrap) <$> gs)) <$> read games
 -- TODO validation and routes modules violate verticality?
+-- TODO add DB for games
