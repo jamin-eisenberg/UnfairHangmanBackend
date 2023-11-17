@@ -24,15 +24,11 @@ import Effect.Console (log)
 import Effect.Random (randomInt)
 import Effect.Ref (Ref, modify_, read)
 import Game (Game(..), GameId, mkGame)
-import GiveUpRequest (GiveUpRequest(..), RawGiveUpRequest)
-import GiveUpResponse (GiveUpResponse(..))
-import GuessRequest (GuessRequest, RawGuessRequest)
-import GuessResponse (GuessError, GuessResponse)
+import GiveUp (GiveUpRequest(..), GiveUpResponse(..), RawGiveUpRequest, routeGiveUp, validateGiveUp)
+import Guess (GuessError, GuessRequest, GuessResponse, RawGuessRequest, routeGuess)
 import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, created', fromValidatedE, fullPath, header, int, jsonHeaders, mkRoute, notFound, ok', optional, segment, toJson, usingCont, (/), (?))
 import HTTPurple.Body (RequestBody)
 import HTTPurple.Json (fromJsonE)
-import Validation (validateGiveUp, validateGuess)
-import Wordlist (getEligibleWords, pickRandomUnfairWord)
 
 newtype WordLength = WordLength Int
 derive instance Generic WordLength _
@@ -72,46 +68,7 @@ route = mkRoute
   , "Guess": gameIdCapture / "guess"
   } 
 
-jsonDecoder :: forall a. DecodeJson a ⇒ JsonDecoder JsonDecodeError a
-jsonDecoder = JsonDecoder $ parseJson >=> decodeJson
-jsonEncoder :: forall a. EncodeJson a ⇒ JsonEncoder a
-jsonEncoder = JsonEncoder $ encodeJson >>> stringify
-
 type Wordlist = Array String
-
-pickWordWithWordlist :: Wordlist -> GuessRequest -> Aff GuessResponse
-pickWordWithWordlist wl guess = do
-  guessResponse <- pickRandomUnfairWord guess wl
-  pure $ guessResponse
-
-revealWords :: Wordlist -> Maybe String -> GiveUpRequest -> GiveUpResponse
-revealWords wl secretWord (GiveUpRequest { previouslyIncorrectLetters, wordSoFar }) =
-  let eligibleWords = getEligibleWords wordSoFar previouslyIncorrectLetters wl
-    in
-      GiveUpResponse { eligibleWords, secretWord }
-  
-
-guessErrorResponse :: forall m. MonadAff m => GuessError -> m Response
-guessErrorResponse = badRequest <<< show
-
-jsonDecodeErrorResponse :: forall m. MonadAff m => JsonDecodeError -> m Response
-jsonDecodeErrorResponse = badRequest <<< printJsonDecodeError
-
-routeGuess :: Wordlist -> Maybe Game -> RequestBody -> ResponseM
-routeGuess wl (Just game) body = usingCont do
-    jsonRequest :: RawGuessRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
-    input :: GuessRequest <- fromValidatedE (validateGuess game) guessErrorResponse jsonRequest
-    output :: GuessResponse <- lift $ pickWordWithWordlist wl input
-    ok' jsonHeaders $ toJson jsonEncoder output
-routeGuess _ Nothing _ = notFound
-
-routeGiveUp :: Wordlist -> Maybe Game -> RequestBody -> ResponseM
-routeGiveUp wl (Just game) body = usingCont do
-    jsonRequest :: RawGiveUpRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
-    input :: GiveUpRequest <- fromValidatedE (validateGiveUp game) guessErrorResponse jsonRequest
-    let output = revealWords wl (unwrap game).secretWord input
-    ok' jsonHeaders $ toJson jsonEncoder output
-routeGiveUp _ Nothing _ = notFound
 
 routeCreateGame :: Ref (List Game) -> Maybe WordLength -> ResponseM
 routeCreateGame games givenWordLength = do

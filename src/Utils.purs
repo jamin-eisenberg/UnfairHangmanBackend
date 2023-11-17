@@ -1,6 +1,7 @@
 module Utils where
 
 import Prelude
+import Data.Argonaut (class DecodeJson, class EncodeJson, JsonDecodeError, decodeJson, encodeJson, parseJson, printJsonDecodeError, stringify)
 import Data.Array (filter, mapWithIndex)
 import Data.Either (Either(..))
 import Data.Enum (fromEnum, toEnum)
@@ -8,7 +9,9 @@ import Data.Foldable (class Foldable, indexl, length)
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
+import Effect.Aff.Class (class MonadAff)
 import Effect.Random (randomInt)
+import HTTPurple (JsonDecoder(..), JsonEncoder(..), Response, badRequest)
 import Partial.Unsafe (unsafePartial)
 
 pickRandom :: forall a f. Foldable f => f a -> Effect a
@@ -49,3 +52,12 @@ isAsciiLetter c =
   in
     (charCode >= 65 && charCode <= 90)
       || isLower c
+
+jsonDecoder :: forall a. DecodeJson a ⇒ JsonDecoder JsonDecodeError a
+jsonDecoder = JsonDecoder $ parseJson >=> decodeJson
+
+jsonEncoder :: forall a. EncodeJson a ⇒ JsonEncoder a
+jsonEncoder = JsonEncoder $ encodeJson >>> stringify
+
+jsonDecodeErrorResponse :: forall m. MonadAff m => JsonDecodeError -> m Response
+jsonDecodeErrorResponse = badRequest <<< printJsonDecodeError

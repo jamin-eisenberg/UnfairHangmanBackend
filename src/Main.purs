@@ -19,8 +19,6 @@ import Routes (route, router)
 type Wordlist
   = Array String
 
--- TODO move give up to a separate endpoint
--- TODO int repr. word length to create game req
 loadWordlist :: Aff Wordlist
 loadWordlist = do
   text <- readTextFile UTF8 "res/english_wordlist.txt"
