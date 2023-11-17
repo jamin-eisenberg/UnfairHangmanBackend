@@ -1,4 +1,7 @@
-module GiveUp where
+module GiveUp
+  ( routeGiveUp
+  )
+  where
 
 import Prelude
 

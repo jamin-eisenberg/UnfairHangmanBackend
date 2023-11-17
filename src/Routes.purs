@@ -8,27 +8,21 @@ module Routes
 
 import Prelude hiding ((/))
 
-import Control.Monad.Trans.Class (lift)
-import Data.Argonaut (class DecodeJson, class EncodeJson, JsonDecodeError, decodeJson, encodeJson, parseJson, printJsonDecodeError, stringify)
 import Data.Either (Either, note)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.List (List, find, (:))
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe, fromMaybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Show.Generic (genericShow)
 import Data.UUID (parseUUID, toString)
-import Effect.Aff (Aff)
-import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Random (randomInt)
 import Effect.Ref (Ref, modify_, read)
 import Game (Game(..), GameId, mkGame)
-import GiveUp (GiveUpRequest(..), GiveUpResponse(..), RawGiveUpRequest, routeGiveUp, validateGiveUp)
-import Guess (GuessError, GuessRequest, GuessResponse, RawGuessRequest, routeGuess)
-import HTTPurple (class Generic, JsonDecoder(..), JsonEncoder(..), Method(..), Request, Response, ResponseM, RouteDuplex', as, badRequest, created', fromValidatedE, fullPath, header, int, jsonHeaders, mkRoute, notFound, ok', optional, segment, toJson, usingCont, (/), (?))
-import HTTPurple.Body (RequestBody)
-import HTTPurple.Json (fromJsonE)
+import GiveUp (routeGiveUp)
+import Guess (routeGuess)
+import HTTPurple (class Generic, Method(..), Request, ResponseM, RouteDuplex', as, badRequest, created', fullPath, header, int, mkRoute, notFound, optional, segment, (/), (?))
 
 newtype WordLength = WordLength Int
 derive instance Generic WordLength _

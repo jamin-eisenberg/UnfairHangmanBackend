@@ -1,4 +1,11 @@
-module Guess where
+module Guess
+  ( GuessError(..)
+  , validateIncorrectLettersAndWordSoFar
+  , guessErrorResponse
+  , getEligibleWords
+  , routeGuess
+  )
+  where
 
 import Prelude
 
