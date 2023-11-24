@@ -83,7 +83,7 @@ router wl games req = loggingMiddleware result req
   where result request = case request of 
                        { route: Guess gameId, method: Patch, body } -> do
                                                                         game <- liftEffect $ gameWithId gameId
-                                                                        routeGuess wl game body
+                                                                        routeGuess games wl game body
                        { route: GiveUp gameId, method: Delete, body } -> do
                                                                           game <- liftEffect $ gameWithId gameId
                                                                           routeGiveUp wl game body

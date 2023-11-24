@@ -14,10 +14,16 @@ import Effect.Random (randomInt)
 import HTTPurple (JsonDecoder(..), JsonEncoder(..), Response, badRequest)
 import Partial.Unsafe (unsafePartial)
 
-pickRandom :: forall a f. Foldable f => f a -> Effect a
-pickRandom xs = do
-  index <- randomInt 0 $ length xs - 1
-  pure $ unsafePartial $ fromJust (indexl index xs)
+pickRandom :: forall a f. Foldable f => f a -> Effect (Maybe a)
+pickRandom xs =
+  let
+    len = length xs
+  in
+    if len == 0 then
+      pure Nothing
+    else do
+      index <- randomInt 0 $ len - 1
+      pure $ (indexl index xs)
 
 indexWrapping :: forall a f. Foldable f => f a -> Int -> a
 indexWrapping xs i = unsafePartial $ fromJust (indexl (i `mod` (length xs)) xs)

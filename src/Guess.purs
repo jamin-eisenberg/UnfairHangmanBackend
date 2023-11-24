@@ -13,11 +13,12 @@ import Control.Monad.Trans.Class (lift)
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson)
 import Data.Argonaut as Argonaut
 import Data.Argonaut.Decode.Combinators ((.:))
-import Data.Array (any, catMaybes, elem, filter, groupBy, head, intersect, last, length, null, sortWith)
+import Data.Array (any, catMaybes, elem, filter, groupBy, head, intersect, last, length, modifyAt, null, sortWith)
 import Data.Array.NonEmpty (fromArray, fromNonEmpty, init, toNonEmpty)
 import Data.Array.NonEmpty as NEA
 import Data.Either (Either(..), note)
 import Data.Function (on)
+import Data.List (List)
 import Data.Maybe (Maybe(..), fromJust, fromMaybe, isNothing)
 import Data.Newtype (unwrap, wrap)
 import Data.NonEmpty (NonEmpty, (:|))
@@ -29,28 +30,28 @@ import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Random (randomInt)
-import Game (Game(..))
+import Effect.Ref (Ref, modify, write)
+import Game (Game(..), GameId(..))
 import HTTPurple (Response, ResponseM, badRequest, fromValidatedE, jsonHeaders, notFound, ok', toJson, usingCont)
 import HTTPurple.Body (RequestBody)
 import HTTPurple.Json (fromJsonE)
 import Partial.Unsafe (unsafePartial)
-import Utils (countOccurrences, indexWrapping, isAsciiLetter, jsonDecodeErrorResponse, jsonDecoder, jsonEncoder, leftIf, mapLeft, occurrenceIndices)
+import Utils (countOccurrences, indexWrapping, isAsciiLetter, jsonDecodeErrorResponse, jsonDecoder, jsonEncoder, leftIf, mapLeft, occurrenceIndices, pickRandom)
 import Word (Word, isWon, mkWord, revealLetterInWord, wordMatches)
 
-data GameMode = Nice | Mean | Normal
+data Unfair = Nice | Mean
+data GameMode = Unfair Unfair | Normal
 
 fromString :: CaseInsensitiveString -> Either GuessError GameMode
-fromString s 
+fromString s
+ | s == wrap "normal" = pure Normal
+ | otherwise = Unfair <$> unfairFromString s
+
+unfairFromString :: CaseInsensitiveString -> Either GuessError Unfair
+unfairFromString s
  | s == wrap "nice" = pure Nice
  | s == wrap "mean" = pure Mean
- | s == wrap "normal" = pure Normal
- | otherwise= Left InvalidMode
-
-isUnfair :: GameMode -> Boolean
-isUnfair g = case g of
-              Nice -> true
-              Mean -> true
-              Normal -> false
+ | otherwise = Left InvalidMode
 
 newtype RawGuessRequest = RawGuessRequest { mode :: String, guessingLetter :: String, previouslyIncorrectLetters :: Array String, wordSoFar :: String }
 
@@ -65,7 +66,7 @@ instance DecodeJson RawGuessRequest where
     mode <- decoded .: "mode"
     pure $ RawGuessRequest { mode, guessingLetter, previouslyIncorrectLetters, wordSoFar } 
 
-data GuessError = GuessingLetterNotAlpha Char | GuessingLetterHasBeenGuessedPreviously | IncorrectLettersInWordSoFar (Array Char) | WordSoFarMalformed (Array String) | WordSoFarWrongLength Int Int | AlreadyWon | ImpossibleWordSoFar | StringsShouldBeChars (Array String) | InvalidMode
+data GuessError = GuessingLetterNotAlpha Char | GuessingLetterHasBeenGuessedPreviously | IncorrectLettersInWordSoFar (Array Char) | WordSoFarMalformed (Array String) | WordSoFarWrongLength Int Int | AlreadyWon | ImpossibleWordSoFar | StringsShouldBeChars (Array String) | InvalidMode | WordSoFarDoesNotMatchSecret
 
 instance Show GuessError where
   show e = case e of
@@ -78,6 +79,7 @@ instance Show GuessError where
             StringsShouldBeChars ss -> "Found a string of length != 1 when this string should represent a char: " <> show ss <> "."
             WordSoFarWrongLength expected actual -> "Expected wordSoFar to be " <> show expected <> " letters long, but it was " <> show actual <> " letters long."
             InvalidMode -> "Expected one of nice|mean|normal"
+            WordSoFarDoesNotMatchSecret -> "The wordSoFar's revealed letters do not match the secret word or one of the blanks holds a letter that has already been revealed."
 
 data GuessResponseMessage = Win String | Incorrect Char | Correct Char (NonEmpty Array Int) | InvalidGuess (Array GuessError)
 
@@ -152,18 +154,54 @@ instance EncodeJson GuessResponse where
 guessErrorResponse :: forall m. MonadAff m => GuessError -> m Response
 guessErrorResponse = badRequest <<< show
 
-pickWordWithWordlist :: Wordlist -> GuessRequest -> Aff GuessResponse
-pickWordWithWordlist wl guess = do
-  guessResponse <- pickRandomUnfairWord guess wl
+pickWordWithWordlist :: Wordlist -> Unfair -> GuessRequest -> Aff GuessResponse
+pickWordWithWordlist wl unfairMode guess = do
+  guessResponse <- pickRandomUnfairWord guess unfairMode wl
   pure $ guessResponse
 
-routeGuess :: Wordlist -> Maybe Game -> RequestBody -> ResponseM
-routeGuess wl (Just game) body = usingCont do
+unsetSecretWord :: Ref (List Game) -> GameId -> Aff Unit
+unsetSecretWord gamesRef gameId = void $ liftEffect $ modify unset gamesRef
+  where unset games = map (\game@(Game r@{ id }) -> if id == gameId then Game r { secretWord = Nothing } else game) games
+
+simpleEvaluateGuess :: Char -> Word -> String -> Array Char -> GuessResponse
+simpleEvaluateGuess guessingLetter wordSoFar secretWord previouslyIncorrectLetters = 
+  let
+    revealedLetterPositions = occurrenceIndices guessingLetter (toCharArray secretWord)
+
+    isCorrect = not $ null revealedLetterPositions
+
+    incorrectLetters = previouslyIncorrectLetters <> if isCorrect then [] else [guessingLetter] -- TODO dedup
+    newWordSoFar = revealLetterInWord guessingLetter secretWord wordSoFar
+    message = if isCorrect then -- TODO dedup
+                if isWon newWordSoFar then
+                  Win $ show newWordSoFar
+                else
+                  Correct guessingLetter $ toNonEmpty $ unsafePartial $ fromJust $ fromArray revealedLetterPositions
+              else
+                Incorrect guessingLetter
+  in
+  GuessResponse { incorrectLetters, wordSoFar: newWordSoFar, message }
+-- TODO unset game secret word on unfair guess
+routeGuess :: Ref (List Game) -> Wordlist -> Maybe Game -> RequestBody -> ResponseM
+routeGuess games wl (Just game@(Game { secretWord, id })) body = usingCont do
     jsonRequest :: RawGuessRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body
-    input :: GuessRequest <- fromValidatedE (validateGuess game) guessErrorResponse jsonRequest
-    output :: GuessResponse <- lift $ pickWordWithWordlist wl input
+    input@(GuessRequest { guessingLetter, wordSoFar, previouslyIncorrectLetters, mode }) <- fromValidatedE (validateGuess game) guessErrorResponse jsonRequest
+    output :: GuessResponse <- lift case mode of
+                                  Unfair unfairMode -> do 
+                                                        unsetSecretWord games id
+                                                        pickWordWithWordlist wl unfairMode input
+                                  Normal -> case secretWord of 
+                                              Just s -> pure $ simpleEvaluateGuess guessingLetter wordSoFar s previouslyIncorrectLetters
+                                              Nothing -> do
+                                                            newSecretWord <- (pickRandomEligibleWord input wl :: Aff (Maybe String))
+                                                            pure case newSecretWord of
+                                                              Just new -> simpleEvaluateGuess guessingLetter wordSoFar new previouslyIncorrectLetters
+                                                              Nothing -> GuessResponse { message: InvalidGuess [ ImpossibleWordSoFar ]
+                                                                                      , incorrectLetters: previouslyIncorrectLetters 
+                                                                                      , wordSoFar: wordSoFar
+                                                                                      }
     ok' jsonHeaders $ toJson jsonEncoder output
-routeGuess _ Nothing _ = notFound
+routeGuess _ _ Nothing _ = notFound
 
 type Wordlist
   = Array String
@@ -171,10 +209,14 @@ type Wordlist
 type WordLength
   = Int
 
-pickRandomUnfairWord :: GuessRequest -> Wordlist -> Aff GuessResponse
-pickRandomUnfairWord g wl = do
-  randomPick <- liftEffect $ randomInt 0 10000
-  pure $ evaluateGuess g wl randomPick
+pickRandomUnfairWord :: GuessRequest -> Unfair -> Wordlist -> Aff GuessResponse
+pickRandomUnfairWord g unfairMode wl = do
+  randomPick <- liftEffect $ randomInt 0 10000  -- TODO get large random num func
+  pure $ evaluateGuess g unfairMode wl randomPick
+
+pickRandomEligibleWord :: GuessRequest -> Wordlist -> Aff (Maybe String)
+pickRandomEligibleWord (GuessRequest { wordSoFar, previouslyIncorrectLetters }) wl = 
+  liftEffect $ pickRandom (getEligibleWords wordSoFar previouslyIncorrectLetters wl)
 
 -- TODO split up
 getEligibleWords :: Word -> Array Char -> Array String -> Array String
@@ -190,8 +232,8 @@ getEligibleWords wordSoFar previouslyIncorrectLetters =
   in
     filter (\word -> correctLengthWords word && wordsNotContainingPreviouslyIncorrectLetters word && correctlyFilledWords word)
 
-evaluateGuess :: GuessRequest -> Wordlist -> Int -> GuessResponse
-evaluateGuess (GuessRequest guess) wordlist toPick =
+evaluateGuess :: GuessRequest -> Unfair -> Wordlist -> Int -> GuessResponse
+evaluateGuess (GuessRequest guess) unfairMode wordlist toPick =
   let
     eligibleWords = getEligibleWords guess.wordSoFar guess.previouslyIncorrectLetters wordlist
 
@@ -202,8 +244,9 @@ evaluateGuess (GuessRequest guess) wordlist toPick =
     fewestRevealedLettersGrouped = groupBy (eq `on` guessingLetterOccurrences) fewestRevealedLetters
 
     response = do
-      -- TODO isUnfair is not correct
-      goodUnfairWords <- (if isUnfair guess.mode then last else head) fewestRevealedLettersGrouped
+      goodUnfairWords <- (case unfairMode of
+                                Nice -> last 
+                                Mean -> head) fewestRevealedLettersGrouped
       let
         wordToPlay = indexWrapping goodUnfairWords toPick
 
@@ -221,17 +264,22 @@ evaluateGuess (GuessRequest guess) wordlist toPick =
               Correct guess.guessingLetter $ toNonEmpty $ unsafePartial $ fromJust $ fromArray revealedLetterPositions
           else
             Incorrect guess.guessingLetter
+
+        newIncorrectLetters = if isCorrect then
+                                guess.previouslyIncorrectLetters
+                              else 
+                                guess.previouslyIncorrectLetters <> [guess.guessingLetter]
       pure
         $ GuessResponse
             { message
-            , incorrectLetters: guess.previouslyIncorrectLetters
+            , incorrectLetters: newIncorrectLetters
             , wordSoFar: newWordSoFar
             }
   in
     fromMaybe
       ( GuessResponse
           { message: InvalidGuess [ ImpossibleWordSoFar ]
-          , incorrectLetters: guess.previouslyIncorrectLetters
+          , incorrectLetters: guess.previouslyIncorrectLetters 
           , wordSoFar: guess.wordSoFar
           }
       )
