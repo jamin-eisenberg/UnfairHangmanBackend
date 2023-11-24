@@ -181,7 +181,7 @@ simpleEvaluateGuess guessingLetter wordSoFar secretWord previouslyIncorrectLette
                 Incorrect guessingLetter
   in
   GuessResponse { incorrectLetters, wordSoFar: newWordSoFar, message }
--- TODO unset game secret word on unfair guess
+
 routeGuess :: Ref (List Game) -> Wordlist -> Maybe Game -> RequestBody -> ResponseM
 routeGuess games wl (Just game@(Game { secretWord, id })) body = usingCont do
     jsonRequest :: RawGuessRequest <- fromJsonE jsonDecoder jsonDecodeErrorResponse body

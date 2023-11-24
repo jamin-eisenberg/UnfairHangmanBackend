@@ -92,8 +92,8 @@ router wl games req = loggingMiddleware result req
           where gameWithId id = do
                   gs <- read games
                   pure $ find (\g -> (unwrap g).id == id) gs
--- TODO validation and routes modules violate verticality?
+
 -- TODO add DB for games
 -- TODO get game state
--- TODO get help
+
 -- separate dict filtration into lazy phases
